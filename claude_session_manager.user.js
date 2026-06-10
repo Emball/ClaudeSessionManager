@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Session Manager
 // @namespace    https://claude.ai
-// @version      1.0.1
+// @version      1.0.2
 // @description  Cross-account conversation tracker and session manager for Claude.ai
 // @author       claude@anthropic
 // @match        https://claude.ai/*
@@ -42,14 +42,30 @@
   function loadLocal() {
     try {
       const raw = GM_getValue(STORAGE_KEY, null);
-      if (raw) data = JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        data.accounts = parsed.accounts || {};
+        data.conversations = parsed.conversations || {};
+        data.settings.autoSwap = parsed.settings?.autoSwap || false;
+      }
+      // Token and gistId stored separately, never in the main blob
+      data.settings.gistToken = GM_getValue(GIST_TOKEN_KEY, '');
+      data.settings.gistId = GM_getValue(GIST_ID_KEY, '');
     } catch (e) {
       console.warn('[CSM] Failed to load local data:', e);
     }
   }
 
   function saveLocal() {
-    GM_setValue(STORAGE_KEY, JSON.stringify(data));
+    // Never serialize token or gistId into the Gist-pushed blob
+    const payload = {
+      accounts: data.accounts,
+      conversations: data.conversations,
+      settings: { autoSwap: data.settings.autoSwap },
+    };
+    GM_setValue(STORAGE_KEY, JSON.stringify(payload));
+    GM_setValue(GIST_TOKEN_KEY, data.settings.gistToken || '');
+    GM_setValue(GIST_ID_KEY, data.settings.gistId || '');
     dirty = true;
   }
 
@@ -294,7 +310,13 @@
   async function pushToGist() {
     if (!data.settings.gistToken || !dirty) return;
 
-    const content = JSON.stringify(data, null, 2);
+    // Strip sensitive keys before pushing
+    const safeData = {
+      accounts: data.accounts,
+      conversations: data.conversations,
+      settings: { autoSwap: data.settings.autoSwap },
+    };
+    const content = JSON.stringify(safeData, null, 2);
     try {
       if (!data.settings.gistId) {
         // Create new gist
