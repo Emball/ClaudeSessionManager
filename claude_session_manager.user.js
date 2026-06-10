@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Session Manager
 // @namespace    https://claude.ai
-// @version      1.0.6
+// @version      1.0.7
 // @description  Cross-account conversation tracker and session manager for Claude.ai
 // @author       claude@anthropic
 // @match        https://claude.ai/*
@@ -232,23 +232,22 @@
   }
 
   // ─── Session swap ─────────────────────────────────────────────────────────────
+  // sessionKeyLC is only a cache namespace key — not an auth token.
+  // Real auth is sessionKey (HttpOnly). Swap via Google Account Chooser which
+  // does a silent SSO when the target account is already signed in on Google.
   function swapToAccount(email) {
-    const acc = data.accounts[email];
-    if (!acc?.sessionKeyLC) {
-      showToast(`No session token saved for ${email}`);
-      return false;
-    }
-    _cachedAccount = null; // clear cache so new account is detected after reload
-    setCookie('sessionKeyLC', acc.sessionKeyLC);
-    showToast(`Swapping to ${email}… reloading`);
-    setTimeout(() => window.location.reload(), 800);
+    if (!email) return false;
+    showToast(`Switching to ${email}…`);
+    const returnUrl = encodeURIComponent('https://claude.ai');
+    const chooserUrl = `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=${returnUrl}`;
+    setTimeout(() => { window.location.href = chooserUrl; }, 600);
     return true;
   }
 
   function nextFreshAccount(currentEmail) {
-    // Return first account that has a token and isn't the current one
+    // Return most recently seen account that isn't the current one
     const candidates = Object.entries(data.accounts)
-      .filter(([email, acc]) => email !== currentEmail && !!acc.sessionKeyLC)
+      .filter(([email]) => email !== currentEmail)
       .sort(([, a], [, b]) => (b.lastSeen || 0) - (a.lastSeen || 0));
     return candidates.length ? candidates[0][0] : null;
   }
@@ -533,15 +532,14 @@
           const isCurrent = email === currentEmail;
           const initial = (acc.label || email)[0].toUpperCase();
           const lastSeen = acc.lastSeen ? relTime(acc.lastSeen) : 'never';
-          const hasToken = !!acc.sessionKeyLC;
           return `
             <div class="csm-account-row${isCurrent ? ' current' : ''}" data-email="${email}">
               <div class="csm-avatar">${initial}</div>
               <div class="csm-account-info">
                 <div class="csm-account-email" title="${email}">${email}</div>
-                <div class="csm-account-meta">Last seen ${lastSeen} · ${hasToken ? '🔑 token saved' : '⚠ no token'}</div>
+                <div class="csm-account-meta">Last seen ${lastSeen}</div>
               </div>
-              ${!isCurrent && hasToken ? `<button class="csm-swap-btn" data-swap="${email}">Swap</button>` : ''}
+              ${!isCurrent ? `<button class="csm-swap-btn" data-swap="${email}">Swap</button>` : ''}
               ${isCurrent ? '<span style="font-size:11px;color:#a6e3a1">● Active</span>' : ''}
             </div>
           `;
@@ -555,8 +553,8 @@
     html += `
       <div class="csm-section-title" style="margin-top:16px">Current Session</div>
       <div style="background:#313244;border-radius:8px;padding:10px;font-size:12px">
-        <div>Cookie <code>sessionKeyLC</code>: <code style="color:#89b4fa">${getCookie('sessionKeyLC') || '(none)'}</code></div>
-        <div style="margin-top:4px">Detected email: <strong>${currentEmail || '(unknown)'}</strong></div>
+        <div>Active account: <strong>${currentEmail || '(unknown)'}</strong></div>
+        <div style="margin-top:4px;color:#6c7086">Swap uses Google Account Chooser — no password needed if already signed in.</div>
       </div>
     `;
 

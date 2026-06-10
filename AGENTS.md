@@ -4,7 +4,7 @@ Tampermonkey userscript for cross-account Claude.ai session management.
 
 ## Purpose
 
-Solves the problem of managing ~50 Gmail accounts used to work around Claude's free-tier quota limits. Tracks conversations across accounts, enables one-click session swapping by writing the `sessionKeyLC` cookie, and syncs data via GitHub Gist.
+Solves the problem of managing ~50 Gmail accounts used to work around Claude's free-tier quota limits. Tracks conversations across accounts, enables one-click session swapping via Google Account Chooser, and syncs data via GitHub Gist.
 
 ## Architecture
 
@@ -14,8 +14,9 @@ No build step. Install directly via Tampermonkey.
 
 ### Key discoveries from source analysis
 
-- `sessionKeyLC` cookie: not HttpOnly — readable and writable via JS. This is the session swap mechanism.
-- `sessionKey` cookie: HttpOnly — cannot be touched by JS.
+- `sessionKeyLC` cookie: not HttpOnly and writable via JS, but **only a localStorage cache namespace key** (`conversations_v2:${sessionKeyLC}`). Writing it does NOT change the authenticated session — confirmed broken in live testing.
+- `sessionKey` cookie: HttpOnly — the real auth token, completely inaccessible to JS.
+- **Session swap mechanism**: redirect to `https://accounts.google.com/AccountChooser?Email=<email>&continue=https://claude.ai`. Google performs silent SSO when the target account is already signed in on Google in that browser. No password required.
 - Chat input: ProseMirror `contenteditable` div with `data-testid="chat-input"`.
 - Account email: fetched from `/api/bootstrap` or `/api/account` API responses (not reliably in localStorage at page load — fetch interceptor captures it).
 - Hard limit strings: "You've reached your usage limit", "You are out of free messages until", "Usage limit reached", "You're out of extra usage/usage credits".
@@ -33,11 +34,13 @@ Stored in `GM_setValue` (Tampermonkey storage), optionally synced to a private G
 }
 ```
 
+`sessionKeyLC` is still stored per account for legacy reasons but is not used for swapping.
+
 ## Key workflows
 
 **Account registration**: Auto-detected via fetch interceptor on bootstrap/account API calls. Falls back to localStorage regex scan.
 
-**Session swap**: Write target account's `sessionKeyLC` to cookie → reload. Confirmed writable in testing.
+**Session swap**: Redirect to Google Account Chooser with target email. Silent SSO if already signed in. No JS cookie manipulation needed.
 
 **Limit detection**: Two-layer check — bail early on soft warning patterns, then match hard limit patterns only.
 
@@ -47,10 +50,10 @@ Stored in `GM_setValue` (Tampermonkey storage), optionally synced to a private G
 
 ## Version
 
-Current: 1.0.1
+Current: 1.0.7
 
 ## Known unknowns
 
-- Whether `sessionKeyLC` swap actually authenticates as the target account (not yet confirmed in live testing — needs a real quota hit to verify).
+- Whether Google Account Chooser silent SSO works reliably across all browsers when accounts are pre-authenticated (needs live testing at quota hit).
 - ProseMirror programmatic text injection not yet implemented (Phase 2).
 - Auto context injection after swap not yet implemented (Phase 2).
