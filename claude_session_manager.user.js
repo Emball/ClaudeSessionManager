@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Session Manager
 // @namespace    https://claude.ai
-// @version      1.0.2
+// @version      1.0.3
 // @description  Cross-account conversation tracker and session manager for Claude.ai
 // @author       claude@anthropic
 // @match        https://claude.ai/*
@@ -85,100 +85,65 @@
   let _cachedAccount = null;
 
   function detectAccount() {
-    if (_cachedAccount) return _cachedAccount;
+    return _cachedAccount;
+  }
 
-    // Strategy 1: scan localStorage for bootstrap/account data
+  // Fetch account info directly from the API — bootstrap has already fired by the time we init
+  async function fetchAccountFromAPI() {
     try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        const val = localStorage.getItem(key);
-        if (!val || !val.includes('@')) continue;
-        try {
-          const parsed = JSON.parse(val);
-          // Direct account object
-          if (parsed?.email_address && parsed?.uuid) {
-            _cachedAccount = { email: parsed.email_address, uuid: parsed.uuid };
-            return _cachedAccount;
-          }
-          // Nested under .account
-          if (parsed?.account?.email_address) {
-            _cachedAccount = { email: parsed.account.email_address, uuid: parsed.account.uuid };
-            return _cachedAccount;
-          }
-          // Array of user objects
-          if (Array.isArray(parsed)) {
-            const user = parsed.find(x => x?.email_address);
-            if (user) {
-              _cachedAccount = { email: user.email_address, uuid: user.uuid };
-              return _cachedAccount;
-            }
-          }
-        } catch {}
-      }
-    } catch {}
-
-    // Strategy 2: scan for email in any localStorage value via regex
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        const val = localStorage.getItem(key);
-        if (!val) continue;
-        const emailMatch = val.match(/"email_address"\s*:\s*"([^"]+@[^"]+)"/);
-        const uuidMatch = val.match(/"uuid"\s*:\s*"([a-f0-9-]{36})"/);
-        if (emailMatch) {
-          _cachedAccount = { email: emailMatch[1], uuid: uuidMatch?.[1] || null };
+      const res = await fetch('/api/account_profile', { credentials: 'include' });
+      if (res.ok) {
+        const json = await res.json();
+        const account = json?.account || json;
+        if (account?.email_address) {
+          _cachedAccount = { email: account.email_address, uuid: account.uuid };
           return _cachedAccount;
         }
       }
     } catch {}
 
-    // Strategy 3: look for account UUID in the page URL or meta
+    // Fallback: try /api/bootstrap endpoint directly
     try {
-      const orgMatch = window.location.pathname.match(/\/([a-f0-9-]{36})\//);
-      if (orgMatch) {
-        // We have a UUID but no email — store UUID-based placeholder
-        _cachedAccount = { email: null, uuid: orgMatch[1] };
+      const bootstrapUrls = performance.getEntriesByType('resource')
+        .filter(r => r.name.includes('/edge-api/bootstrap/'))
+        .map(r => r.name);
+      if (bootstrapUrls.length) {
+        const res = await fetch(bootstrapUrls[0], { credentials: 'include' });
+        if (res.ok) {
+          const json = await res.json();
+          const account = json?.account || json;
+          if (account?.email_address) {
+            _cachedAccount = { email: account.email_address, uuid: account.uuid };
+            return _cachedAccount;
+          }
+        }
       }
     } catch {}
 
-    return _cachedAccount;
-  }
-
-  // Hook into XHR/fetch to capture account data from bootstrap API response
-  function interceptBootstrap() {
-    const origFetch = window.fetch;
-    window.fetch = async function (...args) {
-      const res = await origFetch.apply(this, args);
-      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-      if (url.includes('/api/bootstrap') || url.includes('/api/account')) {
-        try {
-          const clone = res.clone();
-          clone.json().then(data => {
-            const account = data?.account || data;
-            if (account?.email_address) {
-              _cachedAccount = { email: account.email_address, uuid: account.uuid };
-              // Re-register now that we have real data
-              const email = _cachedAccount.email;
-              const sessionKeyLC = getCookie('sessionKeyLC');
-              if (!data.accounts[email]) {
-                data.accounts[email] = { label: email.split('@')[0], sessionKeyLC: sessionKeyLC || '', lastSeen: Date.now(), uuid: account.uuid };
-              } else {
-                if (sessionKeyLC) data.accounts[email].sessionKeyLC = sessionKeyLC;
-                data.accounts[email].lastSeen = Date.now();
-              }
-              saveLocal();
-            }
-          }).catch(() => {});
-        } catch {}
+    // Last resort: extract org UUID from bootstrap URL and try accounts API
+    try {
+      const entry = performance.getEntriesByType('resource')
+        .find(r => r.name.includes('/edge-api/bootstrap/'));
+      const uuidMatch = entry?.name.match(/bootstrap\/([a-f0-9-]{36})/);
+      if (uuidMatch) {
+        const res = await fetch(`/api/organizations/${uuidMatch[1]}/members/me`, { credentials: 'include' });
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.email_address) {
+            _cachedAccount = { email: json.email_address, uuid: json.uuid };
+            return _cachedAccount;
+          }
+        }
       }
-      return res;
-    };
+    } catch {}
+
+    console.warn('[CSM] Could not detect account email');
+    return null;
   }
 
-  function registerCurrentAccount() {
-    const account = detectAccount();
-    if (!account) return null;
+  function registerCurrentAccount(account) {
+    if (!account) account = detectAccount();
+    if (!account || !account.email) return null;
     const sessionKeyLC = getCookie('sessionKeyLC');
     if (!data.accounts[account.email]) {
       data.accounts[account.email] = {
@@ -835,25 +800,24 @@
   }
 
   // ─── Init ─────────────────────────────────────────────────────────────────────
-  function init() {
+  async function init() {
     loadLocal();
-    interceptBootstrap(); // must be before any fetch calls
-    const accountEmail = registerCurrentAccount();
-    registerCurrentConversation(accountEmail);
     buildPanel();
+
+    const account = await fetchAccountFromAPI();
+    const accountEmail = registerCurrentAccount(account);
+    registerCurrentConversation(accountEmail);
     startLimitWatcher();
     watchPageChanges(accountEmail);
 
-    // Periodic Gist sync
     setInterval(pushToGist, SYNC_INTERVAL_MS);
-    // Pull once on load if Gist is configured
     if (data.settings.gistToken && data.settings.gistId) {
       pullFromGist().then(() => {
         registerCurrentConversation(accountEmail);
       });
     }
 
-    console.log('[CSM] Claude Session Manager initialized');
+    console.log('[CSM] Claude Session Manager initialized — account:', accountEmail || 'unknown');
   }
 
   // Wait for page to be interactive
