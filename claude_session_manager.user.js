@@ -234,14 +234,16 @@
   // ─── Session swap ─────────────────────────────────────────────────────────────
   // sessionKeyLC is only a cache namespace key — not an auth token.
   // Real auth is sessionKey (HttpOnly).
-  // /login?login_hint= alone bounces back if already logged in — even with a different email.
-  // Claude's own "switch account" flow uses reauth=1&from=logout to force Google picker.
+  // Claude's own switch-account button: /logout?selectAccount=true&returnTo=<path>
+  // We chain returnTo so after server logout, /login gets login_hint=<email> and
+  // Google auto-selects the right account without a password prompt.
   function swapToAccount(email) {
     if (!email) return false;
     showToast(`Switching to ${email}…`);
-    const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-    const loginUrl = `/login?login_hint=${encodeURIComponent(email)}&returnTo=${returnTo}&reauth=1&from=logout`;
-    setTimeout(() => { window.location.href = loginUrl; }, 600);
+    const finalDest = window.location.pathname + window.location.search;
+    const loginAfter = `/login?login_hint=${encodeURIComponent(email)}&returnTo=${encodeURIComponent(finalDest)}`;
+    const logoutUrl = `/logout?selectAccount=true&returnTo=${encodeURIComponent(loginAfter)}`;
+    setTimeout(() => { window.location.href = logoutUrl; }, 600);
     return true;
   }
 
