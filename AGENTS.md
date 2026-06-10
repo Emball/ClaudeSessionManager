@@ -16,7 +16,7 @@ No build step. Install directly via Tampermonkey.
 
 - `sessionKeyLC` cookie: not HttpOnly and writable via JS, but **only a localStorage cache namespace key** (`conversations_v2:${sessionKeyLC}`). Writing it does NOT change the authenticated session — confirmed broken in live testing.
 - `sessionKey` cookie: HttpOnly — the real auth token, completely inaccessible to JS.
-- **Session swap mechanism**: redirect to `/login?login_hint=<email>&returnTo=<current_path>`. Claude passes this through to Google OAuth which does silent SSO if the target account is already signed in. Confirmed: Google AccountChooser URL returns 400.
+- **Session swap mechanism**: redirect to `/login?login_hint=<email>&returnTo=<path>&reauth=1&from=logout`. The `reauth=1&from=logout` flags force Claude's login page to go through Google OAuth even when already logged in — without them, Claude just bounces the user back to `returnTo` immediately. Google then pre-selects the hinted account. Confirmed: plain `login_hint` alone is broken; Google AccountChooser URL returns 400.
 - Chat input: ProseMirror `contenteditable` div with `data-testid="chat-input"`.
 - Account email: fetched from `/api/bootstrap` or `/api/account` API responses (not reliably in localStorage at page load — fetch interceptor captures it).
 - Hard limit strings: "You've reached your usage limit", "You are out of free messages until", "Usage limit reached", "You're out of extra usage/usage credits".
@@ -50,7 +50,7 @@ Stored in `GM_setValue` (Tampermonkey storage), optionally synced to a private G
 
 ## Version
 
-Current: 1.0.8
+Current: 1.0.9
 
 ## Known unknowns
 
