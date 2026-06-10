@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         Claude Session Manager
 // @namespace    https://claude.ai
-// @version      1.0.3
+// @version      1.0.4
 // @description  Cross-account conversation tracker and session manager for Claude.ai
 // @author       claude@anthropic
 // @match        https://claude.ai/*
+// @updateURL    https://raw.githubusercontent.com/Emball/ClaudeSessionManager/main/claude_session_manager.user.js
+// @downloadURL  https://raw.githubusercontent.com/Emball/ClaudeSessionManager/main/claude_session_manager.user.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
