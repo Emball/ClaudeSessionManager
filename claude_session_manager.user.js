@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Session Manager
 // @namespace    https://claude.ai
-// @version      1.0.7
+// @version      1.0.8
 // @description  Cross-account conversation tracker and session manager for Claude.ai
 // @author       claude@anthropic
 // @match        https://claude.ai/*
@@ -233,14 +233,14 @@
 
   // ─── Session swap ─────────────────────────────────────────────────────────────
   // sessionKeyLC is only a cache namespace key — not an auth token.
-  // Real auth is sessionKey (HttpOnly). Swap via Google Account Chooser which
-  // does a silent SSO when the target account is already signed in on Google.
+  // Real auth is sessionKey (HttpOnly). Swap via Claude's own /login?login_hint=
+  // which Claude passes through to Google OAuth — does silent SSO if already signed in.
   function swapToAccount(email) {
     if (!email) return false;
     showToast(`Switching to ${email}…`);
-    const returnUrl = encodeURIComponent('https://claude.ai');
-    const chooserUrl = `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=${returnUrl}`;
-    setTimeout(() => { window.location.href = chooserUrl; }, 600);
+    const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+    const loginUrl = `/login?login_hint=${encodeURIComponent(email)}&returnTo=${returnTo}`;
+    setTimeout(() => { window.location.href = loginUrl; }, 600);
     return true;
   }
 
